@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>一起走過30連 - iOS 適配版</title>
+    <style>
+        :root {
+            --primary: #4a90e2; --success: #2ed573; --danger: #ff0000; --hint: #f1c40f; --bg: #f5f7fa;
+            /* 動態計算格子大小，在 iPhone 上會自動縮小 */
+            --cell-size: min(13vw, 65px);
+            --gap-size: min(2vw, 15px);
+        }
+
+        * { 
+            box-sizing: border-box; 
+            -webkit-tap-highlight-color: transparent; /* 移除 iOS 點擊陰影 */
+            touch-action: manipulation; /* 防止雙擊縮放 */
+        }
+
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+            background-color: var(--bg); display: flex; flex-direction: column; align-items: center; 
+            min-height: 100vh; margin: 0; padding: 15px; overflow-x: hidden;
+            padding-top: env(safe-area-inset-top); /* iPhone 瀏海區域適配 */
+        }
+
+        .music-toggle {
+            position: fixed; top: 15px; right: 15px;
+            background: white; border-radius: 50%; width: 50px; height: 50px;
+            display: flex; justify-content: center; align-items: center;
+            cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            font-size: 1.5rem; z-index: 2000;
+        }
+
+        .header { text-align: center; width: 100%; }
+        .header h1 { font-size: clamp(2rem, 8vw, 3rem); margin: 10px 0; color: #2c3e50; font-weight: 900; }
+        .header p { 
+            font-size: 1.1rem; font-weight: 600; color: #333; max-width: 600px; 
+            margin: 0 auto 20px auto; background: #ffffff; padding: 12px;
+            border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            border-left: 8px solid var(--danger);
+        }
+
+        .stats { 
+            margin-bottom: 20px; font-size: 1.6rem; font-weight: 800; background: #fff;
+            padding: 8px 30px; border-radius: 50px; box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        }
+        #progress { color: var(--danger); }
+        
+        #game-board-container {
+            position: relative; background: white; border-radius: 20px; padding: 15px;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.15); border: 4px solid #eee;
+            width: fit-content; margin: 0 auto;
+        }
+
+        .board-bg {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background-image: url('B01.jpg'); background-size: contain; background-repeat: no-repeat;
+            background-position: center; filter: grayscale(100%) opacity(0.2); z-index: 1;
+        }
+
+        #game-board {
+            position: relative; display: grid; 
+            grid-template-columns: repeat(6, var(--cell-size)); 
+            grid-template-rows: repeat(6, var(--cell-size)); 
+            gap: var(--gap-size); z-index: 2; 
+        }
+
+        .cell { width: var(--cell-size); height: var(--cell-size); display: flex; justify-content: center; align-items: center; }
+        .dot { 
+            width: calc(var(--cell-size) * 0.5); height: calc(var(--cell-size) * 0.5); 
+            background-color: var(--danger); border-radius: 50%; 
+            z-index: 10; cursor: pointer; transition: all 0.2s; border: 2px solid white;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        }
+        .dot.active { background-color: var(--primary); transform: scale(1.2); border-color: transparent; }
+        .dot.endpoint { background-color: var(--success); }
+
+        /* 提示動畫 */
+        .dot.hint-glow { 
+            background-color: var(--hint) !important; 
+            box-shadow: 0 0 20px 10px rgba(241, 196, 15, 0.7);
+            animation: superPulse 0.6s infinite alternate;
+            z-index: 100;
+        }
+        @keyframes superPulse { 0% { transform: scale(1.2); } 100% { transform: scale(1.8); } }
+
+        .line { position: absolute; background-color: var(--primary); height: 6px; z-index: 5; pointer-events: none; transform-origin: left center; border-radius: 10px; }
+        
+        .controls { 
+            margin-top: 25px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; max-width: 450px;
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        button { 
+            height: 55px; font-size: 1.2rem; border: none; border-radius: 12px; 
+            cursor: pointer; font-weight: bold; color: white; box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            transition: 0.2s; display: flex; justify-content: center; align-items: center;
+        }
+        .btn-hint { background-color: #f39c12; grid-column: span 2; } /* 提示按鈕佔滿整行 */
+        .btn-undo { background-color: #747d8c; }
+        .btn-reset { background-color: var(--primary); }
+        .btn-hint.used { background-color: var(--success); }
+        
+        .overlay { 
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.9); z-index: 5000; justify-content: center; 
+            align-items: center; flex-direction: column; color: white; backdrop-filter: blur(8px); 
+        }
+        .overlay h1 { font-size: 3rem; color: var(--success); margin-bottom: 20px; text-align: center; }
+
+        #confetti-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9999; }
+    </style>
+</head>
+<body>
+
+<canvas id="confetti-canvas"></canvas>
+<div id="music-btn" class="music-toggle" onclick="toggleMusic()">🔇</div>
+
+<div class="header">
+    <h1>一起走過30連</h1>
+    <p>💡 提示：隨時按下「提示起點」，正確位置會閃爍金光！</p>
+</div>
+
+<div class="stats">進度：<span id="progress">0</span> / 30</div>
+
+<div id="game-board-container">
+    <div class="board-bg"></div>
+    <div id="game-board"></div>
+</div>
+
+<div class="controls">
+    <button id="hint-btn" class="btn-hint" onclick="showStartHint()">💡 提示起點</button>
+    <button class="btn-undo" onclick="undo()">⬅️ 撤銷</button>
+    <button class="btn-reset" onclick="initGame()">🔄 換關</button>
+</div>
+
+<div id="win-overlay" class="overlay">
+    <h1>🎉 挑戰成功！</h1>
+    <button class="btn-reset" style="padding: 0 40px; width: auto;" onclick="closeOverlay()">再玩一局</button>
+</div>
+
+<script>
+    // 內建紙屑、音訊系統與遊戲邏輯 (與先前功能一致，但優化了縮放計算)
+    const canvas = document.getElementById('confetti-canvas');
+    const ctx = canvas.getContext('2d');
+    let particles = [];
+    function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+    window.addEventListener('resize', () => { resizeCanvas(); updateUI(); }); // 視窗縮放時重繪連線
+    resizeCanvas();
+
+    class Particle {
+        constructor() {
+            this.x = canvas.width / 2; this.y = canvas.height * 0.6;
+            this.size = Math.random() * 8 + 4;
+            this.speedX = Math.random() * 12 - 6; this.speedY = Math.random() * -15 - 8;
+            this.gravity = 0.4; this.color = `hsl(${Math.random() * 360}, 100%, 50%)`;
+            this.rotation = Math.random() * 360; this.rotationSpeed = Math.random() * 10 - 5;
+        }
+        update() { this.speedY += this.gravity; this.x += this.speedX; this.y += this.speedY; this.rotation += this.rotationSpeed; }
+        draw() {
+            ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.rotation * Math.PI / 180);
+            ctx.fillStyle = this.color; ctx.fillRect(-this.size/2, -this.size/2, this.size, this.size); ctx.restore();
+        }
+    }
+
+    function triggerConfetti() {
+        particles = []; for (let i = 0; i < 120; i++) { particles.push(new Particle()); }
+        animateConfetti();
+    }
+    function animateConfetti() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        particles.forEach((p, index) => { p.update(); p.draw(); if (p.y > canvas.height) particles.splice(index, 1); });
+        if (particles.length > 0) requestAnimationFrame(animateConfetti);
+    }
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    let isMusicPlaying = false; let bgmTimer; let beatCount = 0;
+    function playNote(freq, duration, volume = 0.08) {
+        if (audioCtx.state === 'suspended') return;
+        const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime); gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + duration);
+    }
+    function playBGMStep() {
+        if (!isMusicPlaying) return;
+        const bassFreqs = [110, 110, 130, 98]; playNote(bassFreqs[Math.floor(beatCount / 4) % 4], 0.2, 0.02); beatCount++;
+    }
+    function toggleMusic() {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        isMusicPlaying = !isMusicPlaying;
+        document.getElementById('music-btn').innerText = isMusicPlaying ? '🔊' : '🔇';
+        if (isMusicPlaying) bgmTimer = setInterval(playBGMStep, 250); else clearInterval(bgmTimer);
+    }
+
+    const SIZE = 6; const TOTAL_DOTS = 30;
+    let dotsPositions = []; let path = []; let suggestedStart = null;
+
+    function initGame() {
+        path = []; suggestedStart = null;
+        const btn = document.getElementById('hint-btn');
+        btn.innerHTML = '💡 提示起點'; btn.classList.remove('used');
+        let solvable = false;
+        while (!solvable) {
+            dotsPositions = generateBalancedLayout();
+            suggestedStart = findValidStart();
+            if (suggestedStart) solvable = true;
+        }
+        renderBoard(); updateUI();
+    }
+
+    function generateBalancedLayout() {
+        let pos = []; let rowTypes = [0, 0, 0, 1, 1, 1].sort(() => Math.random() - 0.5);
+        for (let r = 0; r < SIZE; r++) {
+            let targets = [];
+            for (let c = 0; c < SIZE; c++) if ((r + c) % 2 === rowTypes[r]) targets.push(c);
+            let removed = targets[Math.floor(Math.random() * targets.length)];
+            for (let c = 0; c < SIZE; c++) if (c !== removed) pos.push(`${r},${c}`);
+        }
+        return pos;
+    }
+
+    function findValidStart() {
+        let shuffledDots = [...dotsPositions].sort(() => Math.random() - 0.5);
+        for (let start of shuffledDots) if (solveDFS(start, new Set([start]))) return start;
+        return null;
+    }
+
+    function solveDFS(curr, visited) {
+        if (visited.size === TOTAL_DOTS) return true;
+        const [r, c] = curr.split(',').map(Number);
+        for (let [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+            const next = `${r+dr},${c+dc}`;
+            if (dotsPositions.includes(next) && !visited.has(next)) {
+                visited.add(next); if (solveDFS(next, visited)) return true; visited.delete(next);
+            }
+        }
+        return false;
+    }
+
+    function showStartHint() {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        if (suggestedStart) {
+            document.getElementById('hint-btn').innerHTML = '✅';
+            document.getElementById('hint-btn').classList.add('used');
+            const [r, c] = suggestedStart.split(',');
+            const el = document.getElementById(`dot-${r}-${c}`);
+            if (el) {
+                document.querySelectorAll('.hint-glow').forEach(dot => dot.classList.remove('hint-glow'));
+                playNote(880, 0.4, 0.1); el.classList.add('hint-glow');
+                setTimeout(() => el.classList.remove('hint-glow'), 5000);
+            }
+        }
+    }
+
+    function renderBoard() {
+        const board = document.getElementById('game-board'); board.innerHTML = '';
+        for (let r = 0; r < SIZE; r++) {
+            for (let c = 0; c < SIZE; c++) {
+                const cell = document.createElement('div'); cell.className = 'cell';
+                const pos = `${r},${c}`;
+                if (dotsPositions.includes(pos)) {
+                    const dot = document.createElement('div'); dot.className = 'dot';
+                    dot.id = `dot-${r}-${c}`; dot.onclick = () => handleDotClick(r, c);
+                    cell.appendChild(dot);
+                }
+                board.appendChild(cell);
+            }
+        }
+    }
+
+    function handleDotClick(r, c) {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const pos = `${r},${c}`;
+        if (path.length === 0) { path.push(pos); playNote(440, 0.2); } 
+        else {
+            const lastPosStr = path[path.length - 1];
+            if (pos === lastPosStr) return;
+            const [lastR, lastC] = lastPosStr.split(',').map(Number);
+            if (Math.abs(lastR - r) + Math.abs(lastC - c) === 1 && !path.includes(pos)) {
+                path.push(pos); playNote(440 + path.length * 15, 0.2);
+            } else if (path.length >= 2 && pos === path[path.length - 2]) { undo(); return; }
+        }
+        updateUI();
+    }
+
+    function updateUI() {
+        document.querySelectorAll('.dot').forEach(el => el.classList.remove('active', 'endpoint'));
+        path.forEach((pos, i) => {
+            const el = document.getElementById(`dot-${pos.split(',').join('-')}`);
+            if (el) { el.classList.add('active'); if (i === path.length - 1) el.classList.add('endpoint'); }
+        });
+        document.querySelectorAll('.line').forEach(el => el.remove());
+        for (let i = 0; i < path.length - 1; i++) drawLine(path[i], path[i+1]);
+        document.getElementById('progress').innerText = path.length;
+        if (path.length === TOTAL_DOTS) {
+            setTimeout(() => { document.getElementById('win-overlay').style.display = 'flex'; triggerConfetti(); }, 400);
+        }
+    }
+
+    function drawLine(p1, p2) {
+        const d1 = document.getElementById(`dot-${p1.split(',').join('-')}`).getBoundingClientRect();
+        const d2 = document.getElementById(`dot-${p2.split(',').join('-')}`).getBoundingClientRect();
+        const b = document.getElementById('game-board').getBoundingClientRect();
+        const x1 = d1.left + d1.width/2 - b.left, y1 = d1.top + d1.height/2 - b.top;
+        const x2 = d2.left + d2.width/2 - b.left, y2 = d2.top + d2.height/2 - b.top;
+        const line = document.createElement('div'); line.className = 'line';
+        line.style.width = `${Math.sqrt((x2-x1)**2 + (y2-y1)**2)}px`;
+        line.style.left = `${x1}px`; line.style.top = `${y1-3}px`;
+        line.style.transform = `rotate(${Math.atan2(y2-y1, x2-x1) * 180 / Math.PI}deg)`;
+        document.getElementById('game-board').appendChild(line);
+    }
+
+    function undo() { if (path.length > 0) { path.pop(); updateUI(); } }
+    function closeOverlay() { document.getElementById('win-overlay').style.display = 'none'; initGame(); }
+    window.onload = initGame;
+</script>
+</body>
+</html>
